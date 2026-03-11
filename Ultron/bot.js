@@ -1,4 +1,5 @@
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
+const http = require("node:http");
 
 const {
   Client,
@@ -20,10 +21,13 @@ const play = require("play-dl");
 const ytSearch = require("yt-search");
 
 const TOKEN = process.env.TOKEN;
+const PORT = Number.parseInt(process.env.PORT ?? "10000", 10);
 
 if (!TOKEN) {
   throw new Error("Falta la variable de entorno TOKEN. En local usa .env y en Railway agregala en Variables.");
 }
+
+startHealthServer();
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
@@ -554,6 +558,29 @@ function formatDuration(value) {
 
 function trimForChoice(text) {
   return text.length > 100 ? `${text.slice(0, 97)}...` : text;
+}
+
+function startHealthServer() {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/" || req.url === "/healthz") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          service: "Ultron Bot",
+          uptimeSeconds: Math.floor(process.uptime())
+        })
+      );
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ ok: false, error: "Not Found" }));
+  });
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Health server escuchando en 0.0.0.0:${PORT}`);
+  });
 }
 
 client.login(TOKEN);

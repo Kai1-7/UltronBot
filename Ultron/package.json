@@ -2,6 +2,9 @@
   "name": "ultron",
   "version": "1.0.0",
   "main": "bot.js",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "start": "node bot.js",
     "test": "echo \"No tests configured\""
