@@ -1,0 +1,4 @@
+Ultron/.env
+Ultron/node_modules/
+Ultron/.codex/
+*.log
