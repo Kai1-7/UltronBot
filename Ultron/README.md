@@ -7,6 +7,7 @@ Bot de musica para Discord reconstruido desde cero con:
 - busqueda por nombre con `/play`
 - autocompletado al escribir canciones
 - reproduccion usando `yt-dlp + ffmpeg`
+- panel de musica en vivo con barra de progreso, estado y controles
 - servidor HTTP `/healthz` para Render y Railway
 
 ## Comandos
@@ -21,7 +22,7 @@ Bot de musica para Discord reconstruido desde cero con:
 - `/nowplaying`
 - `/help`
 
-Cuando una cancion empieza a sonar, el bot publica un panel nuevo con botones para pausar/reanudar, saltar, repetir en loop, detener, buscar la letra completa en espanol y activar subtitulos sincronizados. Al pasar a otra cancion, el panel anterior queda desactivado para que los botones siempre correspondan a la cancion activa. Si activas `Loop`, esa cancion vuelve a empezar cada vez que termina y la cola espera hasta que vuelvas a tocar el boton para apagarlo. Si la letra original no esta en espanol, el bot intenta traducirla automaticamente antes de mostrarla. Las letras encontradas o traducidas se guardan en cache para reutilizarlas la proxima vez. Si no encuentra letra o no puede traducirla, el boton se marca como `Sin letra ES`.
+Cuando una cancion empieza a sonar, el bot publica un panel nuevo con botones para pausar/reanudar, saltar, repetir en loop, detener, buscar la letra completa en espanol y activar subtitulos sincronizados. El panel se actualiza automaticamente con una barra de progreso, el estado de la reproduccion, la cantidad de canciones pendientes y la fuente de audio usada. Al pasar a otra cancion, el panel anterior queda desactivado para que los botones siempre correspondan a la cancion activa. Si activas `Loop`, esa cancion vuelve a empezar cada vez que termina y la cola espera hasta que vuelvas a tocar el boton para apagarlo. Si la letra original no esta en espanol, el bot intenta traducirla automaticamente antes de mostrarla. Las letras encontradas o traducidas se guardan en cache para reutilizarlas la proxima vez. Si no encuentra letra o no puede traducirla, el boton se marca como `Sin letra ES`.
 
 El boton `Sync ES` agrega una linea de subtitulo al panel activo y la va actualizando con el tiempo de la cancion cuando LRCLIB tiene timestamps sincronizados para esa pista.
 
@@ -43,6 +44,14 @@ npm start
 ```
 
 Usa `.env.example` como base para tu `.env`.
+
+## Crear backup rapido
+
+Antes de experimentar con cambios grandes, puedes crear una rama de respaldo:
+
+```powershell
+.\scripts\create-git-backup.ps1 -Push
+```
 
 ## Deploy en Render
 
