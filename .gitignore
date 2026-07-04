@@ -1,4 +1,7 @@
 Ultron/.env
 Ultron/node_modules/
 Ultron/.codex/
+Ultron/cache/
+Ultron/logs/
+Ultron/bot.pid
 *.log

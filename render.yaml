@@ -4,11 +4,11 @@ services:
     runtime: node
     rootDir: Ultron
     plan: free
-    buildCommand: npm install
+    buildCommand: YOUTUBE_DL_SKIP_PYTHON_CHECK=true npm install
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
-        value: 20.18.0
+        value: 22.14.0
       - key: TOKEN
         sync: false
