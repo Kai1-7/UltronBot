@@ -33,6 +33,7 @@ const client = new Client({
 const guildPlayers = new Map();
 const activeMusicPanels = new Map();
 const activeSubtitleSessions = new Map();
+const activePanelRefreshSessions = new Map();
 let isDiscordReady = false;
 
 const MUSIC_BUTTON_IDS = {
@@ -45,6 +46,22 @@ const MUSIC_BUTTON_IDS = {
 };
 
 const SUBTITLE_UPDATE_INTERVAL_MS = 2500;
+const PANEL_REFRESH_INTERVAL_MS = 15000;
+const PROGRESS_BAR_SEGMENTS = 18;
+const PANEL_MOTION_FRAMES = [
+  "[=     ]",
+  "[==    ]",
+  "[===   ]",
+  "[ ===  ]",
+  "[  === ]",
+  "[   ===]",
+  "[    ==]",
+  "[     =]",
+  "[    ==]",
+  "[   ===]",
+  "[  === ]",
+  "[ ===  ]"
+];
 
 setPlayerStatsProvider(() => Array.from(guildPlayers.values()).map(player => player.getStats()));
 startRealtimeMonitor();
@@ -133,7 +150,10 @@ async function ensureSameVoiceChannel(interaction) {
   return voiceChannel;
 }
 
-function createTrackEmbed(title, track, color) {
+function createTrackEmbed(title, track, color, options = {}) {
+  const player = options.player ?? null;
+  const progressLine = player ? createProgressLine(player, track) : null;
+  const motionFrame = player ? options.motionFrame || getPanelMotionFrame(player.guild.id) : null;
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
@@ -142,7 +162,23 @@ function createTrackEmbed(title, track, color) {
       { name: "Duracion", value: track.duration, inline: true },
       { name: "Pedido por", value: track.requestedBy, inline: true }
     )
-    .setURL(track.url);
+    .setURL(track.url)
+    .setTimestamp();
+
+  if (player) {
+    embed.addFields(
+      { name: "Estado", value: createPlaybackStatus(player), inline: true },
+      { name: "Cola", value: `${player.queue.length} pendiente${player.queue.length === 1 ? "" : "s"}`, inline: true },
+      { name: "Pulso", value: motionFrame, inline: true }
+    );
+  }
+
+  if (progressLine) {
+    embed.addFields({
+      name: "Progreso",
+      value: progressLine
+    });
+  }
 
   if (track.syncedLyricsEnabled) {
     embed.addFields({
@@ -155,7 +191,76 @@ function createTrackEmbed(title, track, color) {
     embed.setThumbnail(track.thumbnail);
   }
 
+  embed.setFooter({
+    text: player ? "Panel en vivo - se actualiza automaticamente" : "Ultron Music"
+  });
+
   return embed;
+}
+
+function createPlaybackStatus(player) {
+  const state = player.isPaused() ? "Pausado" : "Reproduciendo";
+  const loop = player.isLoopingCurrentTrack() ? "Loop ON" : "Loop OFF";
+  const source = player.lastSourceType === "cache" ? "Cache local" : player.lastSourceType === "live" ? "Stream directo" : "Preparando";
+
+  return `${state} | ${loop} | ${source}`;
+}
+
+function createProgressLine(player, track) {
+  const durationMs = parseDurationToMs(track.duration);
+  const playbackMs = Math.max(0, player.getPlaybackMs());
+
+  if (!durationMs) {
+    return `${createLiveProgressBar(playbackMs)}\n${formatPlaybackTime(playbackMs)} / En vivo`;
+  }
+
+  const clampedPlaybackMs = Math.min(playbackMs, durationMs);
+  const ratio = durationMs > 0 ? clampedPlaybackMs / durationMs : 0;
+  const filledSegments = Math.max(0, Math.min(PROGRESS_BAR_SEGMENTS, Math.round(ratio * PROGRESS_BAR_SEGMENTS)));
+  const emptySegments = PROGRESS_BAR_SEGMENTS - filledSegments;
+  const percent = Math.round(ratio * 100);
+  const bar = `[${"#".repeat(filledSegments)}${"-".repeat(emptySegments)}]`;
+
+  return `${bar} ${percent}%\n${formatPlaybackTime(clampedPlaybackMs)} / ${track.duration}`;
+}
+
+function createLiveProgressBar(playbackMs) {
+  const filledSegments = Math.floor(playbackMs / PANEL_REFRESH_INTERVAL_MS) % PROGRESS_BAR_SEGMENTS;
+  return `[${"#".repeat(filledSegments)}${"-".repeat(PROGRESS_BAR_SEGMENTS - filledSegments)}]`;
+}
+
+function parseDurationToMs(value) {
+  const parts = String(value || "")
+    .split(":")
+    .map(part => Number(part));
+
+  if (parts.length > 3 || parts.some(part => !Number.isFinite(part))) {
+    return null;
+  }
+
+  if (parts.length === 1) {
+    return parts[0] * 1000;
+  }
+
+  return parts.reduce((total, part) => (total * 60) + part, 0) * 1000;
+}
+
+function formatPlaybackTime(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getPanelMotionFrame(guildId) {
+  const session = activePanelRefreshSessions.get(guildId);
+  return PANEL_MOTION_FRAMES[session?.frameIndex ?? 0] || PANEL_MOTION_FRAMES[0];
 }
 
 function createMusicControls(player, options = {}) {
@@ -246,7 +351,7 @@ async function publishActiveMusicPanel(player, track) {
     return;
   }
 
-  const embed = createTrackEmbed("Ahora suena", track, 0x2ecc71);
+  const embed = createTrackEmbed("Ahora suena", track, 0x2ecc71, { player });
   const message = await channel.send({
     embeds: [embed],
     components: createMusicControls(player),
@@ -270,6 +375,7 @@ async function publishActiveMusicPanel(player, track) {
     messageId: message.id,
     token: track.controlToken
   });
+  startPanelRefreshSession(player, track.controlToken);
 
   if (track.syncedLyricsEnabled && Array.isArray(track.syncedLyricsLines) && track.syncedLyricsLines.length > 0) {
     startSubtitleSession(player, track.syncedLyricsLines);
@@ -277,6 +383,7 @@ async function publishActiveMusicPanel(player, track) {
 }
 
 async function disableActiveMusicPanel(guildId, token = null) {
+  stopPanelRefreshSession(guildId, token);
   stopSubtitleSession(guildId, token);
 
   const panel = activeMusicPanels.get(guildId);
@@ -315,10 +422,50 @@ async function updateActiveMusicPanelControls(player) {
 
   await message
     ?.edit({
-      embeds: [createTrackEmbed("Ahora suena", player.currentTrack, 0x2ecc71)],
+      embeds: [createTrackEmbed("Ahora suena", player.currentTrack, 0x2ecc71, { player })],
       components: createMusicControls(player)
     })
     .catch(() => {});
+}
+
+function startPanelRefreshSession(player, token) {
+  stopPanelRefreshSession(player.guild.id);
+
+  const session = {
+    token,
+    frameIndex: 0,
+    timer: setInterval(() => {
+      void refreshActiveMusicPanel(player.guild.id);
+    }, PANEL_REFRESH_INTERVAL_MS)
+  };
+
+  session.timer.unref?.();
+  activePanelRefreshSessions.set(player.guild.id, session);
+}
+
+function stopPanelRefreshSession(guildId, token = null) {
+  const session = activePanelRefreshSessions.get(guildId);
+
+  if (!session || (token && session.token !== token)) {
+    return;
+  }
+
+  clearInterval(session.timer);
+  activePanelRefreshSessions.delete(guildId);
+}
+
+async function refreshActiveMusicPanel(guildId) {
+  const session = activePanelRefreshSessions.get(guildId);
+  const player = guildPlayers.get(guildId);
+  const track = player?.currentTrack;
+
+  if (!session || !player || !track || track.controlToken !== session.token) {
+    stopPanelRefreshSession(guildId, session?.token);
+    return;
+  }
+
+  session.frameIndex = (session.frameIndex + 1) % PANEL_MOTION_FRAMES.length;
+  await updateActiveMusicPanelControls(player);
 }
 
 function stopSubtitleSession(guildId, token = null) {
@@ -638,7 +785,7 @@ async function handleLoopButton(interaction, token) {
   player.toggleLoopCurrentTrack();
 
   await interaction.update({
-    embeds: [createTrackEmbed("Ahora suena", player.currentTrack, 0x2ecc71)],
+    embeds: [createTrackEmbed("Ahora suena", player.currentTrack, 0x2ecc71, { player })],
     components: createMusicControls(player)
   });
   await updateActiveMusicPanelControls(player);
@@ -697,7 +844,7 @@ async function handleSyncedLyricsButton(interaction, token) {
     track.currentSubtitleLine = null;
 
     await interaction.update({
-      embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71)],
+      embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71, { player })],
       components: createMusicControls(player)
     });
     await updateActiveMusicPanelControls(player);
@@ -710,7 +857,7 @@ async function handleSyncedLyricsButton(interaction, token) {
   track.currentSubtitleLine = "Cargando subtitulos...";
 
   await interaction.update({
-    embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71)],
+    embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71, { player })],
     components: createMusicControls(player)
   });
   await updateActiveMusicPanelControls(player);
@@ -726,7 +873,7 @@ async function handleSyncedLyricsButton(interaction, token) {
 
     await interaction.message
       .edit({
-        embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71)],
+        embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71, { player })],
         components: createMusicControls(player)
       })
       .catch(() => {});
@@ -749,7 +896,7 @@ async function handleSyncedLyricsButton(interaction, token) {
 
   await interaction.message
     .edit({
-      embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71)],
+      embeds: [createTrackEmbed("Ahora suena", track, 0x2ecc71, { player })],
       components: createMusicControls(player)
     })
     .catch(() => {});
@@ -1062,25 +1209,51 @@ async function handleQueue(interaction) {
   const player = guildPlayers.get(interaction.guild.id);
 
   if (!player || (!player.currentTrack && player.queue.length === 0)) {
-    await interaction.reply("La cola esta vacia.");
+    const embed = new EmbedBuilder()
+      .setColor(0x95a5a6)
+      .setTitle("Cola vacia")
+      .setDescription("No hay canciones pendientes en este servidor.")
+      .setFooter({ text: "Usa /play para iniciar una nueva sesion de musica." });
+
+    await interaction.reply({ embeds: [embed] });
     return;
   }
 
-  const lines = [];
+  const embed = new EmbedBuilder()
+    .setColor(0x1db954)
+    .setTitle("Cola de reproduccion")
+    .setFooter({ text: "Mostrando hasta 10 canciones pendientes." })
+    .setTimestamp();
 
   if (player.currentTrack) {
-    lines.push(`Ahora suena: **${player.currentTrack.title}** (${player.currentTrack.duration})`);
+    embed.setDescription(`Ahora suena: **${trimForEmbedField(player.currentTrack.title)}**`);
+    embed.addFields({
+      name: "Progreso",
+      value: createProgressLine(player, player.currentTrack)
+    });
   }
 
-  player.queue.slice(0, 10).forEach((track, index) => {
-    lines.push(`${index + 1}. ${track.title} (${track.duration})`);
-  });
+  const queueLines = player.queue.slice(0, 10).map((track, index) => createQueueLine(track, index));
+
+  embed.addFields(
+    {
+      name: "Siguientes",
+      value: queueLines.length > 0 ? queueLines.join("\n") : "No hay canciones pendientes despues de la actual."
+    },
+    {
+      name: "Resumen",
+      value: `${player.queue.length} pendiente${player.queue.length === 1 ? "" : "s"} | ${createPlaybackStatus(player)}`
+    }
+  );
 
   if (player.queue.length > 10) {
-    lines.push(`...y ${player.queue.length - 10} mas.`);
+    embed.addFields({
+      name: "Extra",
+      value: `Y ${player.queue.length - 10} mas fuera de esta vista.`
+    });
   }
 
-  await interaction.reply(lines.join("\n"));
+  await interaction.reply({ embeds: [embed] });
 }
 
 async function handleClear(interaction) {
@@ -1109,7 +1282,7 @@ async function handleNowPlaying(interaction) {
     return;
   }
 
-  const embed = createTrackEmbed("Ahora suena", player.currentTrack, 0x3498db);
+  const embed = createTrackEmbed("Ahora suena", player.currentTrack, 0x3498db, { player });
 
   if (player.lastError) {
     embed.addFields({
@@ -1122,27 +1295,52 @@ async function handleNowPlaying(interaction) {
 }
 
 async function handleHelp(interaction) {
-  const commandsList = commandBuilders.map(command => {
-    const data = command.toJSON();
-    return `/${data.name} - ${data.description}`;
-  });
+  const descriptions = getCommandDescriptions();
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle("Comandos de Ultron")
-    .setDescription(commandsList.join("\n"))
+    .setTitle("Centro de control de Ultron")
+    .setDescription("Comandos principales del bot de musica.")
     .addFields(
       {
-        name: "Busqueda rapida",
-        value: "Usa `/play` y escribe solo el nombre de la cancion. El bot buscara el primer resultado y lo pondra en cola."
+        name: "Reproduccion",
+        value: formatCommandGroup(descriptions, ["play", "pause", "resume", "skip", "stop"])
       },
       {
-        name: "Panel de musica",
-        value: "Cada cancion activa publica su propio panel para pausar, reanudar, saltar, repetir, detener y pedir letra en espanol."
+        name: "Cola y cache",
+        value: formatCommandGroup(descriptions, ["queue", "clear", "nowplaying", "preload"])
+      },
+      {
+        name: "Panel en vivo",
+        value: "Cada cancion activa muestra botones, barra de progreso, estado de loop/cache y subtitulos sincronizados cuando estan disponibles."
       }
-    );
+    )
+    .setFooter({ text: "Los botones del panel solo funcionan desde el mismo canal de voz." })
+    .setTimestamp();
 
   await interaction.reply({ embeds: [embed] });
+}
+
+function createQueueLine(track, index) {
+  return `\`${index + 1}.\` ${trimForInline(track.title, 72)} - ${track.duration}`;
+}
+
+function trimForInline(value, maxLength) {
+  const text = String(value || "Audio sin titulo").replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function getCommandDescriptions() {
+  return new Map(commandBuilders.map(command => {
+    const data = command.toJSON();
+    return [data.name, data.description];
+  }));
+}
+
+function formatCommandGroup(descriptions, commandNames) {
+  return commandNames
+    .map(name => `\`/${name}\` - ${descriptions.get(name) || "Comando disponible"}`)
+    .join("\n");
 }
 
 process.on("unhandledRejection", error => {
