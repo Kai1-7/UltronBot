@@ -1,12 +1,39 @@
 # Ultron Bot
 
-Bot de musica para Discord listo para desplegarse en Render o Railway.
+Bot de musica para Discord reconstruido desde cero con:
+
+- cola por servidor
+- slash commands
+- busqueda por nombre con `/play`
+- autocompletado al escribir canciones
+- reproduccion usando `yt-dlp + ffmpeg`
+- servidor HTTP `/healthz` para Render y Railway
+
+## Comandos
+
+- `/play query:<nombre o URL>`
+- `/skip`
+- `/stop`
+- `/pause`
+- `/resume`
+- `/queue`
+- `/clear`
+- `/nowplaying`
+- `/help`
+
+Cuando una cancion empieza a sonar, el bot publica un panel nuevo con botones para pausar/reanudar, saltar, repetir en loop, detener, buscar la letra completa en espanol y activar subtitulos sincronizados. Al pasar a otra cancion, el panel anterior queda desactivado para que los botones siempre correspondan a la cancion activa. Si activas `Loop`, esa cancion vuelve a empezar cada vez que termina y la cola espera hasta que vuelvas a tocar el boton para apagarlo. Si la letra original no esta en espanol, el bot intenta traducirla automaticamente antes de mostrarla. Las letras encontradas o traducidas se guardan en cache para reutilizarlas la proxima vez. Si no encuentra letra o no puede traducirla, el boton se marca como `Sin letra ES`.
+
+El boton `Sync ES` agrega una linea de subtitulo al panel activo y la va actualizando con el tiempo de la cancion cuando LRCLIB tiene timestamps sincronizados para esa pista.
+
+Cuando la cola queda vacia, el bot permanece en el canal si todavia hay personas conectadas. Se sale automaticamente cuando el canal de voz se queda sin usuarios humanos, o cuando alguien usa `/stop`.
 
 ## Variables de entorno
 
-Necesitas configurar esta variable:
-
-- `TOKEN`: token del bot de Discord.
+- `TOKEN`: token del bot de Discord
+- `PORT`: puerto del health server. Opcional, por defecto `10000`
+- `GUILD_ID`: opcional. Si lo pones, los slash commands se registran solo en ese servidor y aparecen casi al instante
+- `INACTIVITY_TIMEOUT_MS`: opcional. Intervalo para revisar inactividad cuando no hay cola, por defecto `120000`
+- `LYRICS_CACHE_DIR`: opcional. Carpeta para cache persistente de letras, por defecto `cache/lyrics`
 
 ## Ejecutar local
 
@@ -15,40 +42,27 @@ npm install
 npm start
 ```
 
-Para local, crea un archivo `.env` basado en `.env.example`.
+Usa `.env.example` como base para tu `.env`.
 
 ## Deploy en Render
 
-### Opcion 1: usando `render.yaml`
+El archivo `render.yaml` de la raiz del repositorio ya viene preparado. Solo agrega `TOKEN`.
 
-1. Sube este repositorio a GitHub.
-2. En Render, elige `New +` -> `Blueprint`.
-3. Selecciona este repositorio.
-4. Render detectara el archivo `render.yaml` de la raiz.
-5. Cuando Render te pida variables secretas, agrega `TOKEN`.
-6. Despliega el servicio.
+Puntos importantes:
 
-### Opcion 2: creando el Web Service manualmente
-
-1. En Render, elige `New +` -> `Web Service`.
-2. Conecta el repositorio.
-3. Configura:
-   - `Root Directory`: `Ultron`
-   - `Build Command`: `npm install`
-   - `Start Command`: `npm start`
-4. En `Environment Variables`, agrega:
-   - `TOKEN`: tu token real del bot
-   - `NODE_VERSION`: `20.18.0`
-5. Crea el servicio.
-
-Render exige que un `Web Service` abra un puerto HTTP, por eso el bot expone `/healthz` para que el deploy quede estable.
+- usa Node 22
+- instala dependencias con `YOUTUBE_DL_SKIP_PYTHON_CHECK=true npm install`
+- la raiz del servicio sigue siendo `Ultron`
 
 ## Deploy en Railway
 
-1. Sube este repositorio a GitHub sin el archivo `.env`.
-2. En Railway, crea un proyecto desde GitHub.
-3. Al crear el servicio, usa como `Root Directory` la carpeta `Ultron`.
-4. En la pestaña `Variables`, agrega `TOKEN` con el token real del bot.
-5. Despliega el servicio.
+Configura:
 
-Railway detecta Node.js y usara el script `npm start` de `package.json`.
+- Root Directory: `Ultron`
+- Start Command: `npm start`
+
+Si Railway fallara durante `npm install` por la verificacion de Python de `youtube-dl-exec`, usa como build command:
+
+```bash
+YOUTUBE_DL_SKIP_PYTHON_CHECK=true npm install
+```
