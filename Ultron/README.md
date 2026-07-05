@@ -32,7 +32,8 @@ Cuando la cola queda vacia, el bot permanece en el canal si todavia hay personas
 
 - `TOKEN`: token del bot de Discord
 - `PORT`: puerto del health server. Opcional, por defecto `10000`
-- `GUILD_ID`: opcional. Si lo pones, los slash commands se registran solo en ese servidor y aparecen casi al instante
+- `GUILD_ID`: opcional. Registra los slash commands en un solo servidor para que aparezcan casi al instante
+- `GUILD_IDS`: opcional. Registra los slash commands en varios servidores separados por coma, por ejemplo `111111111111111111,847861078913187880`
 - `INACTIVITY_TIMEOUT_MS`: opcional. Intervalo para revisar inactividad cuando no hay cola, por defecto `120000`
 - `LYRICS_CACHE_DIR`: opcional. Carpeta para cache persistente de letras, por defecto `cache/lyrics`
 
@@ -52,6 +53,16 @@ Antes de experimentar con cambios grandes, puedes crear una rama de respaldo:
 ```powershell
 .\scripts\create-git-backup.ps1 -Push
 ```
+
+## Crear link de invitacion
+
+Desde la carpeta `Ultron`, genera un link de invitacion con permisos de administrador usando el Application ID del bot:
+
+```powershell
+.\scripts\create-discord-invite-link.ps1 -ClientId TU_APPLICATION_ID -GuildId 847861078913187880 -Admin
+```
+
+Si quieres elegir el servidor desde Discord en vez de fijarlo en el link, omite `-GuildId`.
 
 ## Deploy en Render
 
