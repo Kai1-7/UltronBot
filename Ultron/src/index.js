@@ -87,10 +87,28 @@ function getGuildPlayer(guild) {
 }
 
 async function registerSlashCommands(readyClient) {
-  if (config.guildId) {
-    const guild = await readyClient.guilds.fetch(config.guildId);
-    await guild.commands.set(slashCommands);
-    console.log(`Comandos registrados en el servidor ${guild.name}.`);
+  if (config.guildIds.length > 0) {
+    const results = await Promise.allSettled(
+      config.guildIds.map(async guildId => {
+        const guild = await readyClient.guilds.fetch(guildId);
+        await guild.commands.set(slashCommands);
+        console.log(`Comandos registrados en el servidor ${guild.name}.`);
+        return guild.name;
+      })
+    );
+
+    const failed = results.filter(result => result.status === "rejected");
+
+    if (failed.length > 0) {
+      failed.forEach(result => {
+        console.warn("No pude registrar comandos en uno de los servidores configurados:", result.reason?.message || result.reason);
+      });
+    }
+
+    if (failed.length === results.length) {
+      throw new Error("No pude registrar comandos en ninguno de los servidores configurados.");
+    }
+
     return;
   }
 

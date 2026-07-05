@@ -6,10 +6,20 @@ function parseNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseList(value) {
+  return String(value || "")
+    .split(",")
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+const guildIds = parseList(process.env.GUILD_IDS || process.env.GUILD_ID);
+
 const config = {
   token: process.env.TOKEN?.trim(),
   port: parseNumber(process.env.PORT, 10000),
-  guildId: process.env.GUILD_ID?.trim() || null,
+  guildId: guildIds[0] || null,
+  guildIds,
   inactivityTimeoutMs: parseNumber(process.env.INACTIVITY_TIMEOUT_MS, 120000),
   voiceReconnectEvery: parseNumber(process.env.VOICE_RECONNECT_EVERY, 10),
   audioCacheDir: process.env.AUDIO_CACHE_DIR?.trim() || path.join(__dirname, "..", "cache", "audio"),
